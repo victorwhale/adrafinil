@@ -31,6 +31,11 @@ final class SilentUpdates {
     static let owner = "victorwhale"
     static let repo = "adrafinil"
 
+    /// Fork switch: this build never polls, downloads, mounts or installs anything. It has no
+    /// release pipeline; it is updated by rebuilding reviewed upstream source, so the updater —
+    /// which would mount a downloaded DMG before verifying it — stays off entirely.
+    static let isEnabled = false
+
     /// This app has never wanted to poll GitHub more often than once a day — finding an update
     /// sooner would not install it sooner anyway.
     private static let checkInterval: TimeInterval = 60 * 60 * 24
@@ -97,6 +102,7 @@ final class SilentUpdates {
     /// the setting only decides whether a found update is downloaded and installed at a quiet
     /// moment or merely reported.
     func start(autoInstall: Bool) {
+        guard Self.isEnabled else { return }
         // Never in DEBUG: a development build must not poll GitHub, and must never be swapped
         // out from under Xcode. The debug control panel exercises the UI states directly.
         #if !DEBUG
@@ -108,6 +114,7 @@ final class SilentUpdates {
     /// ``availableVersion``) running but downloads and installs nothing; a DMG already downloaded
     /// stays downloaded and installs only via ``updateNow()``. Turning it on checks right away.
     func setAutoInstall(_ enabled: Bool) {
+        guard Self.isEnabled else { return }
         #if !DEBUG
             github.installsAutomatically(enabled)
         #endif
@@ -126,7 +133,7 @@ final class SilentUpdates {
 
     /// A user-initiated check, for the Settings button: same request the loop makes, off-schedule.
     func checkForUpdates() async {
-        guard !isChecking else { return }
+        guard Self.isEnabled, !isChecking else { return }
         isChecking = true
         checkedUpToDate = false
         await github.checkNow()
@@ -146,6 +153,10 @@ final class SilentUpdates {
     /// later means the attempt failed and `manualPhase` says so.
     func updateNow() async {
         guard manualPhase != .working else { return }
+        guard Self.isEnabled else {
+            manualPhase = .failed(String(localized: "Updates are disabled in this build: rebuild it from source."))
+            return
+        }
         #if DEBUG
             manualPhase = .failed(String(localized: "In-place updating is disabled in development builds."))
         #else
