@@ -31,6 +31,31 @@ struct AdrafinilSettingsTests {
         #expect(s.sleepChimeHoldExpired == "default")
         #expect(s.sleepChimeSafetyCutout == "default")
         #expect(s.sleepChimeUserAction == "default")
+        // Lid-closed work: sleep once it's over (after a short grace), in Low Power Mode meanwhile.
+        // The hotspot keeper is off until the user names a network.
+        #expect(s.sleepWhenWorkEnds == true)
+        #expect(s.postWorkGraceMinutes == 5)
+        #expect(s.lowPowerWhileLidClosed == true)
+        #expect(s.hotspotNetworkName == "")
+    }
+
+    @Test
+    func `lid-closed settings survive a roundtrip`() throws {
+        var original = AdrafinilSettings()
+        original.sleepWhenWorkEnds = false
+        original.postWorkGraceMinutes = 12
+        original.lowPowerWhileLidClosed = false
+        original.hotspotNetworkName = "iPhone du V"
+        let decoded = try JSONDecoder().decode(AdrafinilSettings.self, from: JSONEncoder().encode(original))
+        #expect(decoded == original)
+    }
+
+    @Test
+    func `the post-work grace is clamped to an hour and can be zero`() throws {
+        let tooLong = try JSONDecoder().decode(AdrafinilSettings.self, from: Data(#"{"postWorkGraceMinutes": 500}"#.utf8))
+        #expect(tooLong.postWorkGraceMinutes == 60)
+        let negative = try JSONDecoder().decode(AdrafinilSettings.self, from: Data(#"{"postWorkGraceMinutes": -4}"#.utf8))
+        #expect(negative.postWorkGraceMinutes == 0)
     }
 
     @Test

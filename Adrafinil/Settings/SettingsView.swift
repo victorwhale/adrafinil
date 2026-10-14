@@ -36,6 +36,9 @@ struct SettingsView: View {
             SafetySettingsTab(settings: $appSettings, device: device)
                 .tabItem { Label("Safety", systemImage: "checkmark.shield") }
                 .tag(SettingsTab.safety)
+            LidClosedSettingsTab(settings: $appSettings)
+                .tabItem { Label("Lid Closed", systemImage: "laptopcomputer") }
+                .tag(SettingsTab.lidClosed)
             AboutTab()
                 .tabItem { Label("About", systemImage: "info.circle") }
                 .tag(SettingsTab.about)

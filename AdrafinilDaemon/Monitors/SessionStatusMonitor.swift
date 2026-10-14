@@ -25,8 +25,9 @@ final class SessionStatusMonitor {
     /// Receives each sweep's decisions, in order. The daemon executes them against the registry.
     var onActions: (([SessionWaitEvaluator.Action]) async -> Void)?
 
-    /// The directory to read. Injected for tests; the real daemon uses the default.
-    var sessionsDirectory: URL = ClaudeSessionStatus.defaultDirectory
+    /// The directories to read, re-listed each sweep so a newly set-up config home is picked up.
+    /// Injected for tests; the real daemon reads every Claude config home.
+    var sessionsDirectories: () -> [URL] = { ClaudeSessionStatus.sessionDirectories() }
 
     private var evaluator = SessionWaitEvaluator()
     private var timer: Timer?
@@ -95,14 +96,16 @@ final class SessionStatusMonitor {
         await onActions?(actions)
     }
 
-    /// Every parseable status file in the sessions directory. A missing directory (Claude Code
+    /// Every parseable status file in the sessions directories. A missing directory (Claude Code
     /// absent or never run) reads as no sessions, which disables the whole policy gracefully.
     private func readStatuses() -> [ClaudeSessionStatus] {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: sessionsDirectory.path)) ?? []
-        return names.compactMap { name in
-            guard ClaudeSessionStatus.isStatusFilename(name),
-                  let data = try? Data(contentsOf: sessionsDirectory.appendingPathComponent(name)) else { return nil }
-            return ClaudeSessionStatus.parse(data)
+        sessionsDirectories().flatMap { directory -> [ClaudeSessionStatus] in
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+            return names.compactMap { name -> ClaudeSessionStatus? in
+                guard ClaudeSessionStatus.isStatusFilename(name),
+                      let data = try? Data(contentsOf: directory.appendingPathComponent(name)) else { return nil }
+                return ClaudeSessionStatus.parse(data)
+            }
         }
     }
 }

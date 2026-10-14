@@ -70,4 +70,20 @@ struct ClaudeSessionStatusTests {
         #expect(ClaudeSessionStatus.best(forSession: "s", in: [stale], pidAlive: { _ in false }) == nil)
         #expect(ClaudeSessionStatus.best(forSession: "missing", in: [stale, fresh], pidAlive: { _ in true }) == nil)
     }
+
+    @Test
+    func `status directories cover every Claude config home, not just the default one`() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let fm = FileManager.default
+        for dir in [".claude-pro/sessions", ".claude-c2/sessions", ".claude-worktrees/repo", ".claudeish/sessions"] {
+            try fm.createDirectory(at: home.appendingPathComponent(dir, isDirectory: true), withIntermediateDirectories: true)
+        }
+        try Data().write(to: home.appendingPathComponent(".claude-notadir"))
+
+        let dirs = ClaudeSessionStatus.sessionDirectories(home: home).map { $0.path.replacingOccurrences(of: home.path, with: "~") }
+        // The default home stays first even before Claude Code has created it; the others are
+        // CLAUDE_CONFIG_DIR homes (`~/.claude-<name>`) that actually hold a sessions directory.
+        #expect(dirs == ["~/.claude/sessions", "~/.claude-c2/sessions", "~/.claude-pro/sessions"])
+    }
 }

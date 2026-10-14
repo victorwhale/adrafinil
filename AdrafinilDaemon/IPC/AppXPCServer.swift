@@ -130,7 +130,7 @@ final class DaemonXPCService: NSObject, DaemonXPCProtocol, @unchecked Sendable {
     func releaseAssertion(key: String, reply: @escaping @Sendable (Bool) -> Void) {
         let r = SendableReply(reply)
         Task { @MainActor in
-            let existed = await daemon.handleRelease(key: key)
+            let existed = await daemon.handleRelease(key: key, graceful: false)
             r.call(existed)
         }
     }

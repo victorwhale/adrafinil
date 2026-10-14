@@ -33,6 +33,8 @@ final class Daemon {
     let chimePlayer = ChimePlayer()
     let screenLocker = ScreenLocker()
     let systemPowerMonitor = SystemPowerMonitor()
+    lazy var lowPowerKeeper = LowPowerModeKeeper(helperClient: helperClient)
+    let hotspotKeeper = HotspotKeeper()
 
     var appXPCServer: AppXPCServer!
     var cliServer: CLISocketServer!
@@ -135,6 +137,8 @@ final class Daemon {
         }
         await syncHelperToRegistry()
         helperClient.logHelperVersion()
+        // Also puts back power modes a previous run left switched (crash or reboot mid-hold).
+        await updateLidClosedExtras()
 
         updateSweepTimer()
         updateReconcileTimer()
@@ -274,12 +278,18 @@ final class Daemon {
         return .accepted
     }
 
+    /// `graceful`: the agent's own "I'm done" (hook, MCP, CLI) leaves the post-work grace behind
+    /// it; a release clicked in the menu means "stop now" and doesn't.
     @discardableResult
-    func handleRelease(key: String) async -> Bool {
+    func handleRelease(key: String, graceful: Bool = true) async -> Bool {
         // An explicit release is the agent's own "I'm done" (Stop hook, MCP release) — the
-        // happy-path cue if this is the release that lets the Mac sleep.
+        // happy-path cue if this is the release that lets the Mac sleep. A late Stop for a key a
+        // cutout already dropped must not relabel that cutout, so an unknown key restores it.
+        let previousCause = lastReleaseCause
         lastReleaseCause = .workComplete
+        if graceful { await armPostWorkGrace(releasing: [key]) }
         let existed = await registry.release(key: key)
+        if !existed { lastReleaseCause = previousCause }
         // A released sniffed assertion must stay released: the sweep re-acquires any matched
         // process it isn't already holding, so without this a user's explicit release (or an
         // idle release) would be silently undone 30 seconds later. Suppression lasts until the
@@ -371,6 +381,37 @@ final class Daemon {
         batteryMonitor.enabled = settings.lowBatteryCutoutEnabled
         // The sweep only exists to auto-acquire for sniffed agents — start/stop it as that toggles.
         updateSweepTimer()
+        Task { @MainActor in await self.updateLidClosedExtras() }
+    }
+
+    /// Places (or re-arms) the post-work grace hold before `keys` are released, so the registry
+    /// never empties between the agent finishing and the grace taking over (see `PostWorkGrace`).
+    /// Not while paused or cut off: those exist precisely to let the Mac sleep now. Returns whether
+    /// the grace was (re-)armed.
+    @discardableResult
+    private func armPostWorkGrace(releasing keys: [String]) async -> Bool {
+        let minutes = settings.postWorkGraceMinutes
+        let held = await registry.snapshot()
+        // Gates read after the await: a pause or cutout that landed meanwhile wins.
+        guard !isPaused, !cutoutLatch.isLatched,
+              PostWorkGrace.shouldArm(releasing: keys, held: held, minutes: minutes),
+              let grace = PostWorkGrace.assertion(minutes: minutes) else { return false }
+        // A re-acquire of the same key adopts the new expiry, so the grace always runs from the
+        // last agent to finish.
+        await registry.acquire(grace)
+        log.notice("post-work grace armed for \(minutes, privacy: .public) min")
+        return true
+    }
+
+    /// Low Power Mode and the hotspot keeper apply only while an agent works behind a closed lid
+    /// with no other display — the Mac-in-a-bag case. Re-evaluated on every blocking edge, lid
+    /// change, settings reload, and the 60s reconcile while blocking. The hotspot join can take
+    /// many seconds, so it runs beside the caller rather than stalling the serial blocking loop.
+    private func updateLidClosedExtras() async {
+        let away = isBlocking && DisplayHold.onlyDisplayIsClosedBuiltIn(lidClosed: lidMonitor.isLidClosed)
+        await lowPowerKeeper.update(wanted: away && settings.lowPowerWhileLidClosed)
+        let hotspot = away ? settings.hotspotNetworkName : ""
+        Task { @MainActor in await self.hotspotKeeper.tick(networkName: hotspot) }
     }
 
     // MARK: - Internal
@@ -382,6 +423,8 @@ final class Daemon {
         blockingObserver = Task { @MainActor [weak self] in
             guard let self else { return }
             for await blocking in registry.blockingStateChanges {
+                // The cause of *this* edge, before the awaits below let a late release relabel it.
+                let cause = lastReleaseCause
                 isBlocking = blocking
                 thermalMonitor.isBlocking = blocking
                 batteryMonitor.isBlocking = blocking
@@ -399,11 +442,13 @@ final class Daemon {
                 // acquire lands during playback, its true-edge is queued behind this one and
                 // re-blocks right after — the same transient the serial consumer already allows.
                 if !blocking {
-                    await playSleepCueIfNeeded()
+                    await playSleepCueIfNeeded(cause: cause)
                 }
                 await helperClient.setBlocked(blocking)
+                // Restore the power modes before any sleep request, so the Mac wakes in its own.
+                await updateLidClosedExtras()
                 if !blocking {
-                    sleepAfterCutoutIfNeeded()
+                    await sleepAfterReleaseIfNeeded(cause: cause)
                 }
                 // Going idle is the safe moment to adopt a binary an update swapped in while we
                 // were holding.
@@ -431,27 +476,30 @@ final class Daemon {
     /// `SleepCueDecider` gates it — silent when the lid is open (the user can see the state),
     /// when the feature is off, or when this cause's sound is "off". A user's own release
     /// against a closed lid (a force release over SSH) gets its confirmation cue.
-    private func playSleepCueIfNeeded() async {
+    private func playSleepCueIfNeeded(cause: ReleaseCause) async {
         let decision = SleepCueDecider().onSleepResuming(
-            cause: lastReleaseCause,
+            cause: cause,
             lidClosed: lidMonitor.isLidClosed,
             settings: settings,
         )
         guard let soundName = decision.soundName else { return }
-        log.notice("pre-sleep cue (cause=\(self.lastReleaseCause.rawValue, privacy: .public)) before clearing the sleep block")
+        log.notice("pre-sleep cue (cause=\(cause.rawValue, privacy: .public)) before clearing the sleep block")
         await chimePlayer.playSleepCue(soundName: soundName, cue: decision.cue, volume: settings.soundVolume)
     }
 
-    /// Puts a lid-closed Mac to sleep after a safety cutout, which clearing the block alone does
-    /// not do (see `CutoutSleepDecider`). The cutout latch keeps the agent that was cut off from
-    /// re-pinning it on the next wake.
-    private func sleepAfterCutoutIfNeeded() {
-        guard CutoutSleepDecider().shouldSleep(
-            cause: lastReleaseCause,
+    /// Puts a lid-closed Mac to sleep after a safety cutout — and, with `sleepWhenWorkEnds`, after
+    /// finished work — which clearing the block alone does not do (see `CutoutSleepDecider`). The
+    /// cutout latch keeps the agent that was cut off from re-pinning it on the next wake. An
+    /// acquire queued behind this edge (a follow-up landing just as the grace ran out) means
+    /// work resumed, so the registry is re-read last: never sleep under a live hold.
+    private func sleepAfterReleaseIfNeeded(cause: ReleaseCause) async {
+        guard await !registry.isBlocking, CutoutSleepDecider().shouldSleep(
+            cause: cause,
             onlyDisplayIsClosedBuiltIn: DisplayHold.onlyDisplayIsClosedBuiltIn(lidClosed: lidMonitor.isLidClosed),
             blockCleared: !helperClient.lastApplyFailed,
+            sleepWhenWorkEnds: settings.sleepWhenWorkEnds,
         ) else { return }
-        log.notice("Safety cutout with the lid closed — requesting system sleep")
+        log.notice("Released (\(cause.rawValue, privacy: .public)) with the lid closed — requesting system sleep")
         systemPowerMonitor.requestSleep()
     }
 
@@ -493,6 +541,9 @@ final class Daemon {
                     // Idempotent display re-assert (and relight, if the panel went dark through a
                     // path the assertion doesn't govern) — the clamshell re-apply philosophy.
                     await self.displayHold.set(held: self.registry.wantsDisplay)
+                    // Catches a display plugged or unplugged behind a closed lid, and re-checks
+                    // the hotspot once a minute.
+                    await self.updateLidClosedExtras()
                 }
             }
         } else if !isBlocking, let timer = reconcileTimer {
@@ -509,8 +560,10 @@ final class Daemon {
         await persistState()
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             let once = OnceResumer<Void> { cont.resume() }
-            Task { @MainActor [helperClient] in
+            Task { @MainActor [helperClient, lowPowerKeeper] in
                 await helperClient.setBlocked(false)
+                // Best effort within the deadline; the originals stay on disk for the next launch.
+                await lowPowerKeeper.update(wanted: false)
                 once.resume(())
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) { once.resume(()) }
@@ -582,6 +635,7 @@ final class Daemon {
                 } else if !self.lidMonitor.isLidClosed {
                     await self.finishAwayTracking()
                 }
+                await self.updateLidClosedExtras()
                 // Push the lid-state change (and any freshly-pending away summary) to the app.
                 await self.broadcastStatus()
             }
@@ -594,6 +648,8 @@ final class Daemon {
             Task { @MainActor in
                 // The agent's process exited — from the away user's perspective, it's done.
                 self.lastReleaseCause = .workComplete
+                let owned = await self.registry.snapshot().filter { pid > 0 && $0.pid == pid }.map(\.key)
+                await self.armPostWorkGrace(releasing: owned)
                 let removed = await self.registry.releaseAll(matchingPid: pid)
                 if removed > 0 {
                     self.log.info("Released \(removed) assertion(s) after PID \(pid) exited")
@@ -608,9 +664,14 @@ final class Daemon {
         idleMonitor.onIdleRelease = { [weak self] releases in
             guard let self else { return }
             Task { @MainActor in
-                self.lastReleaseCause = ReleaseCause(idleReleaseReasons: releases.map(\.reason))
+                self.lastReleaseCause = PostWorkGrace.cause(forIdleReleases: releases)
+                // An agent that went quiet or died is done; an expired hold isn't work finishing.
+                let finished = releases.filter { $0.reason == .cpuIdle || $0.reason == .deadProcess }.map(\.key)
+                // A grace expiring in the same batch it was just re-armed for is kept.
+                let rearmed = await self.armPostWorkGrace(releasing: finished)
+                let toRelease = rearmed ? releases.filter { $0.key != PostWorkGrace.key } : releases
                 var released = 0
-                for release in releases where await self.registry.release(key: release.key) {
+                for release in toRelease where await self.registry.release(key: release.key) {
                     released += 1
                 }
                 if released > 0 { await self.persistAndSync(event: .idleRelease) }
@@ -789,6 +850,9 @@ final class Daemon {
         // Re-check the gates in case settings or the holding state changed between scheduling and firing.
         guard isBlocking, settings.processSniffingEnabled, settings.autoAcquireForKnownAgents else { return }
         let snapshot = await registry.snapshot()
+        // Sniffing catches a concurrent agent while awake for another; the post-work grace alone
+        // is no agent, and sniffing then would re-acquire the idle session that just finished.
+        guard snapshot.contains(where: { $0.key != PostWorkGrace.key }) else { return }
         let watchedPids = Set(snapshot.map(\.pid))
         sniffSuppressedPids = sniffSuppressedPids.filter { kill($0, 0) == 0 || errno == EPERM }
 

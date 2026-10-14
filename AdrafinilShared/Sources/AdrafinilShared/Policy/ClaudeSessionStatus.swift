@@ -14,7 +14,8 @@ import Foundation
 /// The format is Claude Code internals (it backs `claude ps` and teammates; stable since March
 /// 2026, fields only accreted), so parsing is strictly defensive: anything unrecognized reads as
 /// "no status", and every consumer must degrade to Adrafinil's existing nets when it does.
-/// Sessions started with a non-default `CLAUDE_CONFIG_DIR` write elsewhere and simply aren't seen.
+/// Sessions started with a non-default `CLAUDE_CONFIG_DIR` write under that home instead; the
+/// `~/.claude-<name>` homes are read too (see `sessionDirectories`), any other location isn't seen.
 ///
 /// The `<pid>.<hash>.key` files in the same directory are messaging-socket auth material — the
 /// filename filter here must never match them, and nothing may read them.
@@ -42,11 +43,30 @@ public struct ClaudeSessionStatus: Sendable, Equatable {
         self.statusUpdatedAt = statusUpdatedAt
     }
 
-    /// The default status directory. Claude Code writes under its config home; the daemon has no
-    /// view of a user's shell environment, so a custom `CLAUDE_CONFIG_DIR` is out of scope.
+    /// The default status directory. Claude Code writes under its config home.
     public static var defaultDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/sessions", isDirectory: true)
+    }
+
+    /// Every status directory to read: the default one, plus each `~/.claude-<name>/sessions`
+    /// that exists. The daemon has no view of a user's shell environment, so it can't know a
+    /// session's `CLAUDE_CONFIG_DIR`; the `~/.claude-<name>` homes are the common convention for
+    /// running several accounts side by side, and a sessions directory marks a real one.
+    public static func sessionDirectories(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        fileManager: FileManager = .default,
+    ) -> [URL] {
+        let names = (try? fileManager.contentsOfDirectory(atPath: home.path)) ?? []
+        let extra = names
+            .filter { $0.hasPrefix(".claude-") }
+            .sorted()
+            .map { home.appendingPathComponent($0, isDirectory: true).appendingPathComponent("sessions", isDirectory: true) }
+            .filter { url in
+                var isDirectory: ObjCBool = false
+                return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+            }
+        return [home.appendingPathComponent(".claude/sessions", isDirectory: true)] + extra
     }
 
     /// Whether `filename` is a session status file (`<pid>.json`, strictly). Anchored the same way

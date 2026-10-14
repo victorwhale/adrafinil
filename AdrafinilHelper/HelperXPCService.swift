@@ -29,6 +29,32 @@ final class HelperXPCService: NSObject, HelperXPCProtocol, @unchecked Sendable {
         if !blocked { relaunchIfUpdated() }
     }
 
+    func setPowerMode(_ mode: Int, onBattery: Bool, reply: @escaping @Sendable (Bool, NSError?) -> Void) {
+        let source: PowerSource = onBattery ? .battery : .ac
+        log.notice("XPC setPowerMode(\(mode, privacy: .public), \(source.rawValue, privacy: .public)) received from daemon")
+        guard LowPowerPlan.isValidMode(mode) else {
+            reply(false, NSError(
+                domain: "Adrafinil.Helper.PowerMode",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid power mode \(mode)"],
+            ))
+            return
+        }
+        do {
+            try PMSet.run([source.pmsetFlag, "powermode", String(mode)])
+            reply(true, nil)
+        } catch {
+            // Older macOS only knows the boolean key, which covers automatic and Low Power.
+            guard mode <= LowPowerPlan.lowPowerMode,
+                  (try? PMSet.run([source.pmsetFlag, "lowpowermode", String(mode)])) != nil else {
+                log.error("XPC setPowerMode(\(mode, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+                reply(false, error as NSError)
+                return
+            }
+            reply(true, nil)
+        }
+    }
+
     func sleepBlockedState(reply: @escaping @Sendable (Bool) -> Void) {
         log.debug("XPC sleepBlockedState query -> \(self.blocker.isBlocked, privacy: .public)")
         reply(blocker.isBlocked)

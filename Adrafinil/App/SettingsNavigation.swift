@@ -6,6 +6,7 @@ enum SettingsTab: Hashable {
     case general
     case agents
     case safety
+    case lidClosed
     case about
 }
 

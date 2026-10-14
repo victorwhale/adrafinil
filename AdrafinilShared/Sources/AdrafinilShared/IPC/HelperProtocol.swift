@@ -1,6 +1,7 @@
 import Foundation
 
-/// XPC interface exposed by AdrafinilHelper. Single-purpose: toggle sleep blocking.
+/// XPC interface exposed by AdrafinilHelper: toggle sleep blocking, and set a power source's
+/// energy mode for Low Power Mode while the lid is closed (see `LowPowerPlan`).
 /// Reply closures are `@Sendable`: NSXPC delivers them on its own private queue, so they
 /// must not be `@MainActor`-isolated (which would trap when the reply fires off the main actor).
 @objc
@@ -11,6 +12,10 @@ public protocol HelperXPCProtocol {
 
     /// Current sleep-blocking state as seen by the helper.
     func sleepBlockedState(reply: @escaping @Sendable (Bool) -> Void)
+
+    /// Set one power source's energy mode (`pmset -b|-c powermode`): 0 automatic, 1 Low Power,
+    /// 2 High Power. Any other value is refused. Returns whether the mode was applied.
+    func setPowerMode(_ mode: Int, onBattery: Bool, reply: @escaping @Sendable (Bool, NSError?) -> Void)
 
     /// Helper version string.
     func version(reply: @escaping @Sendable (String) -> Void)

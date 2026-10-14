@@ -49,6 +49,21 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     public var lowBatteryCutoutEnabled: Bool = true
     public var lowBatteryThresholdPercent: Int = 20
 
+    /// With the lid closed and no other display, put the Mac to sleep once the work is over
+    /// (after `postWorkGraceMinutes`). macOS only sleeps a closed lid on the close itself, so a
+    /// Mac a hold carried past it would otherwise run on until idle sleep — never, with idle
+    /// sleep off or any app holding an idle assertion (see `CutoutSleepDecider`).
+    public var sleepWhenWorkEnds: Bool = true
+    /// Keep the Mac awake this many minutes after the last agent finishes, so a follow-up lands
+    /// on a running Mac (see `PostWorkGrace`). 0 releases immediately.
+    public var postWorkGraceMinutes: Int = 5
+    /// Switch to Low Power Mode while an agent works behind a closed lid with no other display,
+    /// and restore each power source's own mode afterwards (see `LowPowerPlan`).
+    public var lowPowerWhileLidClosed: Bool = true
+    /// The iPhone Personal Hotspot to stay on while an agent works behind a closed lid (see
+    /// `PersonalHotspot`). Empty turns the hotspot keeper off.
+    public var hotspotNetworkName: String = ""
+
     /// Policy for a Claude Code session that has stopped mid-turn to wait for the user (detected
     /// via its session status file — see `ClaudeSessionStatus`). Grace by default: long enough to
     /// answer from a phone, bounded so an unanswered question can't pin the Mac awake for hours.
@@ -104,6 +119,10 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         case thermalThresholdCelsius
         case lowBatteryCutoutEnabled
         case lowBatteryThresholdPercent
+        case sleepWhenWorkEnds
+        case postWorkGraceMinutes
+        case lowPowerWhileLidClosed
+        case hotspotNetworkName
         case agentWaitingPolicy
         case agentWaitingGraceMinutes
         case idleReleaseEnabled
@@ -145,6 +164,10 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         self.thermalThresholdCelsius = (try? c.decodeIfPresent(Double.self, forKey: .thermalThresholdCelsius)) ?? d.thermalThresholdCelsius
         self.lowBatteryCutoutEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .lowBatteryCutoutEnabled)) ?? d.lowBatteryCutoutEnabled
         self.lowBatteryThresholdPercent = (try? c.decodeIfPresent(Int.self, forKey: .lowBatteryThresholdPercent)) ?? d.lowBatteryThresholdPercent
+        self.sleepWhenWorkEnds = (try? c.decodeIfPresent(Bool.self, forKey: .sleepWhenWorkEnds)) ?? d.sleepWhenWorkEnds
+        self.postWorkGraceMinutes = (try? c.decodeIfPresent(Int.self, forKey: .postWorkGraceMinutes)) ?? d.postWorkGraceMinutes
+        self.lowPowerWhileLidClosed = (try? c.decodeIfPresent(Bool.self, forKey: .lowPowerWhileLidClosed)) ?? d.lowPowerWhileLidClosed
+        self.hotspotNetworkName = (try? c.decodeIfPresent(String.self, forKey: .hotspotNetworkName)) ?? d.hotspotNetworkName
         self.agentWaitingPolicy = (try? c.decodeIfPresent(AgentWaitingPolicy.self, forKey: .agentWaitingPolicy)) ?? d.agentWaitingPolicy
         self.agentWaitingGraceMinutes = (try? c.decodeIfPresent(Int.self, forKey: .agentWaitingGraceMinutes)) ?? d.agentWaitingGraceMinutes
         self.idleReleaseEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .idleReleaseEnabled)) ?? d.idleReleaseEnabled
@@ -184,6 +207,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         idleReleaseSeconds = min(max(idleReleaseSeconds, 30), 3_600)
         manualHoldMaxHours = min(max(manualHoldMaxHours, 0.25), 24)
         agentWaitingGraceMinutes = min(max(agentWaitingGraceMinutes, 1), 120)
+        postWorkGraceMinutes = min(max(postWorkGraceMinutes, 0), 60)
     }
 
     public static func load(from url: URL = AdrafinilConstants.appSupportURL.appendingPathComponent(AdrafinilConstants.configFilename)) -> AdrafinilSettings {
