@@ -28,7 +28,7 @@ import TiptoeGitHub
 final class SilentUpdates {
     static let shared = SilentUpdates()
 
-    static let owner = "kageroumado"
+    static let owner = "victorwhale"
     static let repo = "adrafinil"
 
     /// This app has never wanted to poll GitHub more often than once a day — finding an update
