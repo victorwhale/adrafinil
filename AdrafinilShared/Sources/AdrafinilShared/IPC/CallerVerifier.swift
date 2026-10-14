@@ -76,8 +76,19 @@ public enum CallerVerifier {
         return signingInfo(of: stat)
     }
 
+    /// The code-signing requirement the privileged helper pins each accepted connection to (via
+    /// `NSXPCConnection.setCodeSigningRequirement`): an Apple-anchored certificate from our team,
+    /// and exactly the daemon — its only legitimate caller. Unlike the accept-time check above,
+    /// which reads the caller's *claimed* team and identifier, the requirement is validated
+    /// cryptographically by the system, on every message. Nil for a malformed team: a Team ID is
+    /// ten uppercase letters or digits, and anything else must not be spliced into a requirement.
+    public static func helperClientRequirement(team: String) -> String? {
+        guard team.count == 10, team.allSatisfy({ $0.isASCII && ($0.isUppercase || $0.isNumber) }) else { return nil }
+        return #"anchor apple generic and certificate leaf[subject.OU] = "\#(team)" and identifier "AdrafinilDaemon""#
+    }
+
     /// Team Identifier of the *current* process, used as the reference for the caller's team.
-    private static func ownTeamIdentifier() -> String? {
+    public static func ownTeamIdentifier() -> String? {
         var selfCode: SecCode?
         guard SecCodeCopySelf([], &selfCode) == errSecSuccess,
               let code = selfCode,

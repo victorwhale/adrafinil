@@ -92,4 +92,15 @@ struct CallerVerifierDecisionTests {
             ownTeam: nil, callerTeam: team, identifier: "glass.kagerou.adrafinil.daemon",
         ))
     }
+
+    @Test
+    func `the helper pins its connections to the daemon signed by our team`() {
+        #expect(CallerVerifier.helperClientRequirement(team: team)
+            == #"anchor apple generic and certificate leaf[subject.OU] = "52K336H235" and identifier "AdrafinilDaemon""#)
+    }
+
+    @Test(arguments: ["", "52K336H23", "52K336H2355", #"52K336H2"5"#, "52k336h235", "52K336H23 "])
+    func `a malformed team yields no requirement rather than a wrong one`(bad: String) {
+        #expect(CallerVerifier.helperClientRequirement(team: bad) == nil)
+    }
 }

@@ -34,6 +34,13 @@ final class HelperListenerDelegate: NSObject, NSXPCListenerDelegate, @unchecked 
             log.error("rejected XPC connection (pid \(newConnection.processIdentifier, privacy: .public)) — caller failed code-signing check")
             return false
         }
+        // Then let the system hold every message on this connection to a cryptographically
+        // validated requirement: our team, and exactly the daemon. A team-signed build always
+        // gets one; an ad-hoc dev build has no team to pin to and keeps the check above alone.
+        if let team = CallerVerifier.ownTeamIdentifier(),
+           let requirement = CallerVerifier.helperClientRequirement(team: team) {
+            newConnection.setCodeSigningRequirement(requirement)
+        }
         log.notice("accepted XPC connection from pid \(newConnection.processIdentifier, privacy: .public)")
 
         connectionState.withLock {
