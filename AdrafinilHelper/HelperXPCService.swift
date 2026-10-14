@@ -55,6 +55,36 @@ final class HelperXPCService: NSObject, HelperXPCProtocol, @unchecked Sendable {
         }
     }
 
+    func setWiFiIPv6Enabled(_ enabled: Bool, reply: @escaping @Sendable (Bool, NSError?) -> Void) {
+        log.notice("XPC setWiFiIPv6Enabled(\(enabled, privacy: .public)) received from daemon")
+        // Up to three `networksetup` runs: off the connection's queue, so a slow one never holds
+        // up the sleep-block calls behind it.
+        DispatchQueue.global(qos: .utility).async { [log] in
+            Self.applyWiFiIPv6(enabled, log: log, reply: reply)
+        }
+    }
+
+    private static func applyWiFiIPv6(_ enabled: Bool, log: Logger, reply: @escaping @Sendable (Bool, NSError?) -> Void) {
+        do {
+            // The service is resolved here, as root, from the system's own listings — the daemon
+            // only says on or off, so no caller-supplied text ever reaches `networksetup`.
+            let networksetup = "/usr/sbin/networksetup"
+            let ports = try HelperTool.run(networksetup, ["-listallhardwareports"])
+            guard let device = PersonalHotspot.wifiDevice(fromHardwarePorts: ports) else {
+                throw NSError(domain: "Adrafinil.Helper.IPv6", code: -1, userInfo: [NSLocalizedDescriptionKey: "no Wi-Fi device"])
+            }
+            let order = try HelperTool.run(networksetup, ["-listnetworkserviceorder"])
+            guard let service = HotspotIPv6.serviceName(forDevice: device, inServiceOrder: order) else {
+                throw NSError(domain: "Adrafinil.Helper.IPv6", code: -2, userInfo: [NSLocalizedDescriptionKey: "no Wi-Fi service for \(device)"])
+            }
+            try HelperTool.run(networksetup, [enabled ? "-setv6automatic" : "-setv6off", service])
+            reply(true, nil)
+        } catch {
+            log.error("XPC setWiFiIPv6Enabled(\(enabled, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            reply(false, error as NSError)
+        }
+    }
+
     func sleepBlockedState(reply: @escaping @Sendable (Bool) -> Void) {
         log.debug("XPC sleepBlockedState query -> \(self.blocker.isBlocked, privacy: .public)")
         reply(blocker.isBlocked)

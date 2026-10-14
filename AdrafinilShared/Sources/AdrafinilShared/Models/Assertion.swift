@@ -146,6 +146,10 @@ public struct DaemonStatus: Codable, Sendable {
     /// across a restart the receiver must accept the payload unconditionally.
     public var daemonBootID: UUID?
 
+    /// What the lid-closed extras are doing right now (Low Power Mode, hotspot, IPv4), for the
+    /// menu. Nil from a daemon that predates them.
+    public var lidClosedExtras: LidClosedExtrasStatus?
+
     public init(
         isBlocking: Bool,
         assertions: [Assertion],
@@ -159,6 +163,7 @@ public struct DaemonStatus: Codable, Sendable {
         warnings: [String] = [],
         generation: UInt64 = 0,
         daemonBootID: UUID? = nil,
+        lidClosedExtras: LidClosedExtrasStatus? = nil,
     ) {
         self.isBlocking = isBlocking
         self.assertions = assertions
@@ -172,6 +177,7 @@ public struct DaemonStatus: Codable, Sendable {
         self.warnings = warnings
         self.generation = generation
         self.daemonBootID = daemonBootID
+        self.lidClosedExtras = lidClosedExtras
     }
 
     /// Tolerant decode: a status from a build without `warnings` still decodes.
@@ -189,6 +195,27 @@ public struct DaemonStatus: Codable, Sendable {
         self.warnings = try c.decodeIfPresent([String].self, forKey: .warnings) ?? []
         self.generation = try c.decodeIfPresent(UInt64.self, forKey: .generation) ?? 0
         self.daemonBootID = try c.decodeIfPresent(UUID.self, forKey: .daemonBootID)
+        self.lidClosedExtras = try? c.decodeIfPresent(LidClosedExtrasStatus.self, forKey: .lidClosedExtras)
+    }
+}
+
+/// The lid-closed extras' live state, shown in the menu.
+public struct LidClosedExtrasStatus: Codable, Sendable, Equatable {
+    /// Low Power Mode is being held for a closed-lid agent.
+    public var lowPowerEngaged: Bool
+    /// The Wi-Fi address is in the iPhone Personal Hotspot range.
+    public var onPersonalHotspot: Bool
+    /// The Wi-Fi service's IPv6 is switched off for the hotspot.
+    public var ipv6OffForHotspot: Bool
+
+    public init(lowPowerEngaged: Bool, onPersonalHotspot: Bool, ipv6OffForHotspot: Bool) {
+        self.lowPowerEngaged = lowPowerEngaged
+        self.onPersonalHotspot = onPersonalHotspot
+        self.ipv6OffForHotspot = ipv6OffForHotspot
+    }
+
+    public var hasAnythingToShow: Bool {
+        lowPowerEngaged || onPersonalHotspot || ipv6OffForHotspot
     }
 }
 

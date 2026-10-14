@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>glass.kagerou.adrafinil.daemon</string>
+    <string>AdrafinilDaemon</string>
     <key>CFBundleName</key>
     <string>AdrafinilDaemon</string>
     <key>CFBundleVersion</key>
@@ -16,5 +16,7 @@
     <string>14.0</string>
     <key>LSBackgroundOnly</key>
     <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Adrafinil sends you an iMessage when work behind a closed lid ends or is cut off, so you know when to open your Mac again.</string>
 </dict>
 </plist>

@@ -63,6 +63,12 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     /// The iPhone Personal Hotspot to stay on while an agent works behind a closed lid (see
     /// `PersonalHotspot`). Empty turns the hotspot keeper off.
     public var hotspotNetworkName: String = ""
+    /// Switch the Wi-Fi service's IPv6 off while on the iPhone Personal Hotspot, which advertises
+    /// IPv6 it doesn't route, and back to automatic on leaving it (see `HotspotIPv6`).
+    public var ipv4OnlyOnHotspot: Bool = false
+    /// Who to text (iMessage, a `+` phone number or an email) when work behind a closed lid ends or
+    /// is cut off (see `AwayNotice`). Empty turns phone notices off.
+    public var notifyRecipient: String = ""
 
     /// Policy for a Claude Code session that has stopped mid-turn to wait for the user (detected
     /// via its session status file — see `ClaudeSessionStatus`). Grace by default: long enough to
@@ -123,6 +129,8 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         case postWorkGraceMinutes
         case lowPowerWhileLidClosed
         case hotspotNetworkName
+        case ipv4OnlyOnHotspot
+        case notifyRecipient
         case agentWaitingPolicy
         case agentWaitingGraceMinutes
         case idleReleaseEnabled
@@ -168,6 +176,8 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         self.postWorkGraceMinutes = (try? c.decodeIfPresent(Int.self, forKey: .postWorkGraceMinutes)) ?? d.postWorkGraceMinutes
         self.lowPowerWhileLidClosed = (try? c.decodeIfPresent(Bool.self, forKey: .lowPowerWhileLidClosed)) ?? d.lowPowerWhileLidClosed
         self.hotspotNetworkName = (try? c.decodeIfPresent(String.self, forKey: .hotspotNetworkName)) ?? d.hotspotNetworkName
+        self.ipv4OnlyOnHotspot = (try? c.decodeIfPresent(Bool.self, forKey: .ipv4OnlyOnHotspot)) ?? d.ipv4OnlyOnHotspot
+        self.notifyRecipient = (try? c.decodeIfPresent(String.self, forKey: .notifyRecipient)) ?? d.notifyRecipient
         self.agentWaitingPolicy = (try? c.decodeIfPresent(AgentWaitingPolicy.self, forKey: .agentWaitingPolicy)) ?? d.agentWaitingPolicy
         self.agentWaitingGraceMinutes = (try? c.decodeIfPresent(Int.self, forKey: .agentWaitingGraceMinutes)) ?? d.agentWaitingGraceMinutes
         self.idleReleaseEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .idleReleaseEnabled)) ?? d.idleReleaseEnabled

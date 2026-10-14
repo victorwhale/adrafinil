@@ -11,11 +11,15 @@ import OSLog
 @MainActor
 final class HotspotKeeper {
     private let log = Logger(subsystem: AdrafinilConstants.daemonBundleID, category: "Hotspot")
+    private let wifi: WiFiInterface
     private var lastAttempt: Date?
-    private var wifiDevice: String?
     /// The latest wanted network; empty means "not wanted right now".
     private var wantedName = ""
     private var ticking = false
+
+    init(wifi: WiFiInterface) {
+        self.wifi = wifi
+    }
 
     func tick(networkName: String) async {
         wantedName = networkName.trimmingCharacters(in: .whitespaces)
@@ -27,12 +31,11 @@ final class HotspotKeeper {
         ticking = true
         defer { ticking = false }
 
-        guard let device = await resolveWiFiDevice() else {
+        guard let device = await wifi.device() else {
             log.error("No Wi-Fi interface found — can't keep the Mac on '\(self.wantedName, privacy: .public)'")
             return
         }
-        let address = await CommandRunner.run("/usr/sbin/ipconfig", ["getifaddr", device], timeout: 5)
-            .flatMap { $0.status == 0 ? $0.output.trimmingCharacters(in: .whitespacesAndNewlines) : nil }
+        let address = await wifi.address()
         let name = wantedName
         guard PersonalHotspot.shouldAttemptJoin(
             networkName: name,
@@ -46,13 +49,5 @@ final class HotspotKeeper {
         let result = await CommandRunner.run("/usr/sbin/networksetup", ["-setairportnetwork", device, name], timeout: 30)
         let output = result?.output.trimmingCharacters(in: .whitespacesAndNewlines) ?? "timed out"
         log.notice("networksetup -setairportnetwork exited \(result?.status ?? -1, privacy: .public): \(output.isEmpty ? "ok" : output, privacy: .public)")
-    }
-
-    private func resolveWiFiDevice() async -> String? {
-        if let wifiDevice { return wifiDevice }
-        guard let result = await CommandRunner.run("/usr/sbin/networksetup", ["-listallhardwareports"], timeout: 10),
-              result.status == 0 else { return nil }
-        wifiDevice = PersonalHotspot.wifiDevice(fromHardwarePorts: result.output)
-        return wifiDevice
     }
 }

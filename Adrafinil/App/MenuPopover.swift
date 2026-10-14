@@ -126,6 +126,10 @@ struct MenuPopover: View {
                         daemonWarningsCard(live.warnings).transition(.popoverSection)
                     }
 
+                    if let extras = live.lidClosedExtras, extras.hasAnythingToShow {
+                        LidClosedStatusCard(extras: extras).transition(.popoverSection)
+                    }
+
                     if !live.assertions.isEmpty {
                         agentList(live.assertions, now: now).transition(.popoverSection)
                     }

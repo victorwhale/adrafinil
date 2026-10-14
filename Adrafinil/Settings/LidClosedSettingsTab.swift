@@ -1,4 +1,5 @@
 import AdrafinilShared
+import Propofol
 import SwiftUI
 
 // MARK: - Lid Closed tab
@@ -34,8 +35,51 @@ struct LidClosedSettingsTab: View {
             } footer: {
                 Text("Low Power Mode cuts heat and drain in a bag; each power source gets its own mode back afterwards. The hotspot name is your iPhone's name as it appears in the Wi-Fi menu: if the Mac isn't on that hotspot, Adrafinil joins it, using the password macOS already knows. Keep \"Allow Others to Join\" on in the iPhone's Personal Hotspot settings so the Mac can find it. Neither applies with an external display connected.")
             }
+
+            Section {
+                Toggle("Use IPv4 only on an iPhone hotspot", isOn: $settings.ipv4OnlyOnHotspot)
+            } footer: {
+                Text("An iPhone hotspot announces IPv6 it doesn't carry, so some apps hang until they time out. While the Mac is on one — lid open or closed — Adrafinil turns the Wi-Fi's IPv6 off, and back to automatic as soon as it leaves. A Wi-Fi you set up by hand is left alone.")
+            }
+
+            Section {
+                LabeledContent("Text me when it's done") {
+                    HStack(spacing: Theme.Space.sm) {
+                        TextField("Recipient", text: $recipientDraft, prompt: Text(verbatim: "+33… / you@icloud.com"))
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: 200)
+                            .onSubmit(commitRecipient)
+                        Button("Save", action: commitRecipient)
+                            .disabled(!draftIsCommittable)
+                    }
+                }
+                if !recipientDraft.isEmpty, !AwayNotice.isValidRecipient(recipientDraft) {
+                    Text("Use an international number (+33…) or an email address.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Phone notice")
+            } footer: {
+                Text("An iMessage when the agents are done behind a closed lid, or when a heat or battery cutout puts the Mac to sleep. Saving sends a first message, and macOS asks once to let Adrafinil use Messages. Empty turns it off.")
+            }
         }
         .formStyle(.grouped)
+        .onAppear { recipientDraft = settings.notifyRecipient }
+    }
+
+    /// Edited apart from the settings and saved only on Return or Save: saving sends a message,
+    /// and a number typed digit by digit passes for valid long before it is the right one.
+    @State private var recipientDraft = ""
+
+    private var draftIsCommittable: Bool {
+        recipientDraft != settings.notifyRecipient && (recipientDraft.isEmpty || AwayNotice.isValidRecipient(recipientDraft))
+    }
+
+    private func commitRecipient() {
+        recipientDraft = recipientDraft.trimmingCharacters(in: .whitespaces)
+        guard draftIsCommittable else { return }
+        settings.notifyRecipient = recipientDraft
     }
 
     private var graceLabel: String {

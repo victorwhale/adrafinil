@@ -612,7 +612,9 @@
 		0B11480C2FC6A1D700D7D25C /* Debug configuration for PBXNativeTarget "AdrafinilDaemon" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				AUTOMATION_APPLE_EVENTS = NO;
+				AUTOMATION_APPLE_EVENTS = YES;
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+				INFOPLIST_FILE = AdrafinilDaemon/Info.plist;
 				CODE_SIGN_STYLE = Automatic;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -639,7 +641,9 @@
 		0B11480D2FC6A1D700D7D25C /* Release configuration for PBXNativeTarget "AdrafinilDaemon" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				AUTOMATION_APPLE_EVENTS = NO;
+				AUTOMATION_APPLE_EVENTS = YES;
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+				INFOPLIST_FILE = AdrafinilDaemon/Info.plist;
 				CODE_SIGN_STYLE = Automatic;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;

@@ -37,6 +37,18 @@ struct AdrafinilSettingsTests {
         #expect(s.postWorkGraceMinutes == 5)
         #expect(s.lowPowerWhileLidClosed == true)
         #expect(s.hotspotNetworkName == "")
+        // Both touch more than sleep (the network setup, the user's Messages), so both are opt-in.
+        #expect(s.ipv4OnlyOnHotspot == false)
+        #expect(s.notifyRecipient == "")
+    }
+
+    @Test
+    func `hotspot IPv4 and phone notice settings survive a roundtrip`() throws {
+        var original = AdrafinilSettings()
+        original.ipv4OnlyOnHotspot = true
+        original.notifyRecipient = "+33632939718"
+        let decoded = try JSONDecoder().decode(AdrafinilSettings.self, from: JSONEncoder().encode(original))
+        #expect(decoded == original)
     }
 
     @Test

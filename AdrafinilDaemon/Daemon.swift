@@ -34,7 +34,10 @@ final class Daemon {
     let screenLocker = ScreenLocker()
     let systemPowerMonitor = SystemPowerMonitor()
     lazy var lowPowerKeeper = LowPowerModeKeeper(helperClient: helperClient)
-    let hotspotKeeper = HotspotKeeper()
+    let wifi = WiFiInterface()
+    lazy var hotspotKeeper = HotspotKeeper(wifi: wifi)
+    lazy var ipv6Keeper = HotspotIPv6Keeper(helperClient: helperClient, wifi: wifi)
+    let notifier = IMessageNotifier()
 
     var appXPCServer: AppXPCServer!
     var cliServer: CLISocketServer!
@@ -139,6 +142,10 @@ final class Daemon {
         helperClient.logHelperVersion()
         // Also puts back power modes a previous run left switched (crash or reboot mid-hold).
         await updateLidClosedExtras()
+        ipv6Keeper.onChange = { [weak self] in
+            Task { @MainActor in await self?.broadcastStatus() }
+        }
+        ipv6Keeper.start { [weak self] in self?.ipv4OnlyWanted ?? false }
 
         updateSweepTimer()
         updateReconcileTimer()
@@ -157,6 +164,9 @@ final class Daemon {
             await registry.removeAll()
             await persistAndSync(event: .released)
             await syncHelperToRegistry()
+            // Paused means no Adrafinil effect at all — uninstall pauses first, so this is also
+            // what puts the Wi-Fi's IPv6 back before the helper goes away.
+            await ipv6Keeper.update(enabled: false)
         } else {
             log.notice("Resumed — agents can keep the Mac awake again")
             // Resume changes no assertions, so it doesn't pass through persistAndSync — persist
@@ -164,7 +174,13 @@ final class Daemon {
             // immediately.
             await persistState()
             await broadcastStatus()
+            await ipv6Keeper.update(enabled: ipv4OnlyWanted)
         }
+    }
+
+    /// IPv4 only on the hotspot is wanted when the setting is on and Adrafinil isn't paused.
+    var ipv4OnlyWanted: Bool {
+        settings.ipv4OnlyOnHotspot && !isPaused
     }
 
     /// Outcome of an agent-hold request, so the CLI/MCP can report precisely why a hold did or
@@ -302,6 +318,8 @@ final class Daemon {
             let count = await registry.snapshot().count
             log.notice("release key='\(key, privacy: .public)' existed=true -> \(count, privacy: .public) active")
             await persistAndSync(event: .released)
+            // Off the hook's reply path: the notice may take seconds to send.
+            if graceful { Task { @MainActor in await self.noticeIfWorkFinished() } }
         } else {
             // Unknown key is a warning, not an error.
             log.warning("Release for unknown key '\(key)' — no-op")
@@ -353,6 +371,11 @@ final class Daemon {
             warnings: warnings,
             generation: generation,
             daemonBootID: bootID,
+            lidClosedExtras: LidClosedExtrasStatus(
+                lowPowerEngaged: lowPowerKeeper.isEngaged,
+                onPersonalHotspot: ipv6Keeper.onHotspot,
+                ipv6OffForHotspot: ipv6Keeper.isOffForHotspot,
+            ),
         )
     }
 
@@ -370,6 +393,7 @@ final class Daemon {
     }
 
     func reloadSettings() {
+        let previousRecipient = settings.notifyRecipient
         settings = AdrafinilSettings.load()
         idleMonitor.idleThresholdSeconds = TimeInterval(settings.idleReleaseSeconds)
         idleMonitor.enabled = settings.idleReleaseEnabled
@@ -381,7 +405,15 @@ final class Daemon {
         batteryMonitor.enabled = settings.lowBatteryCutoutEnabled
         // The sweep only exists to auto-acquire for sniffed agents — start/stop it as that toggles.
         updateSweepTimer()
-        Task { @MainActor in await self.updateLidClosedExtras() }
+        Task { @MainActor in
+            await self.updateLidClosedExtras()
+            await self.ipv6Keeper.update(enabled: self.ipv4OnlyWanted)
+            // A newly set recipient gets a first message: it proves the route works, and it asks
+            // for the Messages permission now, while the user is at the Mac, not in a bag.
+            if self.settings.notifyRecipient != previousRecipient {
+                await self.notifier.send(AwayNotice.confirmationText, to: self.settings.notifyRecipient)
+            }
+        }
     }
 
     /// Places (or re-arms) the post-work grace hold before `keys` are released, so the registry
@@ -409,7 +441,9 @@ final class Daemon {
     /// many seconds, so it runs beside the caller rather than stalling the serial blocking loop.
     private func updateLidClosedExtras() async {
         let away = isBlocking && DisplayHold.onlyDisplayIsClosedBuiltIn(lidClosed: lidMonitor.isLidClosed)
+        let wasEngaged = lowPowerKeeper.isEngaged
         await lowPowerKeeper.update(wanted: away && settings.lowPowerWhileLidClosed)
+        if lowPowerKeeper.isEngaged != wasEngaged { await broadcastStatus() }
         let hotspot = away ? settings.hotspotNetworkName : ""
         Task { @MainActor in await self.hotspotKeeper.tick(networkName: hotspot) }
     }
@@ -560,10 +594,11 @@ final class Daemon {
         await persistState()
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             let once = OnceResumer<Void> { cont.resume() }
-            Task { @MainActor [helperClient, lowPowerKeeper] in
+            Task { @MainActor [helperClient, lowPowerKeeper, ipv6Keeper] in
                 await helperClient.setBlocked(false)
                 // Best effort within the deadline; the originals stay on disk for the next launch.
                 await lowPowerKeeper.update(wanted: false)
+                await ipv6Keeper.update(enabled: false)
                 once.resume(())
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) { once.resume(()) }
@@ -654,6 +689,7 @@ final class Daemon {
                 if removed > 0 {
                     self.log.info("Released \(removed) assertion(s) after PID \(pid) exited")
                     await self.persistAndSync(event: .released)
+                    await self.noticeIfWorkFinished()
                 }
             }
         }
@@ -675,6 +711,7 @@ final class Daemon {
                     released += 1
                 }
                 if released > 0 { await self.persistAndSync(event: .idleRelease) }
+                if released > 0, !finished.isEmpty { await self.noticeIfWorkFinished() }
             }
         }
         idleMonitor.assertionSource = { [weak self] in
@@ -743,12 +780,17 @@ final class Daemon {
             guard let self else { return }
             Task { @MainActor in
                 self.log.warning("Thermal cutout triggered — releasing all assertions")
-                if self.lidClosedAt != nil { self.thermalCutoutWhileClosed = true }
+                let notify = self.lidClosedAt != nil
+                if notify { self.thermalCutoutWhileClosed = true }
                 self.lastReleaseCause = .safetyCutout
                 self.cutoutLatch.trip(.thermal)
                 self.updateLatchRecheckTimer()
                 await self.registry.removeAll()
                 await self.persistAndSync(event: .thermalCutout)
+                // After the cutout, never before it: the notice must not delay protecting the Mac.
+                if notify {
+                    await self.notifier.send(AwayNotice.thermalCutoutText(celsius: self.thermalMonitor.lastReadingCelsius), to: self.settings.notifyRecipient, timeout: 5)
+                }
             }
         }
         thermalMonitor.start()
@@ -766,12 +808,16 @@ final class Daemon {
             guard let self else { return }
             Task { @MainActor in
                 self.log.warning("Low-battery cutout triggered — releasing all assertions")
-                if self.lidClosedAt != nil { self.lowBatteryCutoutWhileClosed = true }
+                let notify = self.lidClosedAt != nil
+                if notify { self.lowBatteryCutoutWhileClosed = true }
                 self.lastReleaseCause = .safetyCutout
                 self.cutoutLatch.trip(.lowBattery)
                 self.updateLatchRecheckTimer()
                 await self.registry.removeAll()
                 await self.persistAndSync(event: .lowBatteryCutout)
+                if notify {
+                    await self.notifier.send(AwayNotice.lowBatteryCutoutText(percent: self.batteryMonitor.lastPercent), to: self.settings.notifyRecipient, timeout: 5)
+                }
             }
         }
         batteryMonitor.start()

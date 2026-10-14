@@ -159,6 +159,33 @@ final class HelperClient {
         }
     }
 
+    /// Switches the Wi-Fi service's IPv6 through the helper (see `HotspotIPv6`). Returns whether it
+    /// applied; an old helper that predates the call answers with an XPC error, read as `false`.
+    func setWiFiIPv6Enabled(_ enabled: Bool) async -> Bool {
+        let conn = ensureConnection()
+        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            let once = OnceResumer<Bool> { cont.resume(returning: $0) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.callTimeout) {
+                once.resume(false)
+            }
+            // @Sendable for the same reason as in `sendSetBlocked`.
+            let onError: @Sendable (any Error) -> Void = { [log] error in
+                log.error("Helper proxy error (setWiFiIPv6Enabled): \(error.localizedDescription)")
+                once.resume(false)
+            }
+            guard let proxy = conn.remoteObjectProxyWithErrorHandler(onError) as? HelperXPCProtocol else {
+                once.resume(false)
+                return
+            }
+            proxy.setWiFiIPv6Enabled(enabled) { [log] applied, error in
+                if let error {
+                    log.error("Helper setWiFiIPv6Enabled error: \(error.localizedDescription)")
+                }
+                once.resume(applied && error == nil)
+            }
+        }
+    }
+
     /// One-shot version probe, logged at startup, so version skew — an old helper still resident
     /// after an app update (launchd keeps the registered binary running) — shows up in the log
     /// instead of only as mysteriously failing calls.

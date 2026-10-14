@@ -119,6 +119,21 @@ struct AssertionTests {
         #expect(d2.lastEvent == nil)
         #expect(d2.cpuTemperatureCelsius == nil)
         #expect(d2.lastEventAt == nil)
+        #expect(d2.lidClosedExtras == nil)
+    }
+
+    @Test
+    func `lid-closed extras ride along in the status and say whether there is anything to show`() throws {
+        var status = DaemonStatus(
+            isBlocking: true, assertions: [], lidClosed: true,
+            helperConnected: true, cpuTemperatureCelsius: nil, lastEvent: nil,
+        )
+        let extras = LidClosedExtrasStatus(lowPowerEngaged: true, onPersonalHotspot: true, ipv6OffForHotspot: true)
+        status.lidClosedExtras = extras
+        let decoded = try JSONDecoder().decode(DaemonStatus.self, from: JSONEncoder().encode(status))
+        #expect(decoded.lidClosedExtras == extras)
+        #expect(extras.hasAnythingToShow)
+        #expect(!LidClosedExtrasStatus(lowPowerEngaged: false, onPersonalHotspot: false, ipv6OffForHotspot: false).hasAnythingToShow)
     }
 
     @Test
