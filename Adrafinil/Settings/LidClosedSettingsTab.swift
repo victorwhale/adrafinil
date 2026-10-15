@@ -37,6 +37,12 @@ struct LidClosedSettingsTab: View {
             }
 
             Section {
+                Toggle("Also hold busy Claude sessions a hook missed", isOn: $settings.holdBusyClaudeSessions)
+            } footer: {
+                Text("Claude Code's own status says which sessions are working. Every 30 seconds, one that is working but not held — a missed hook, an app restart, a pause and resume — is held again, and released by its own end hook as usual. Idle sessions are never held.")
+            }
+
+            Section {
                 Toggle("Use IPv4 only on an iPhone hotspot", isOn: $settings.ipv4OnlyOnHotspot)
             } footer: {
                 Text("An iPhone hotspot announces IPv6 it doesn't carry, so some apps hang until they time out. While the Mac is on one — lid open or closed — Adrafinil turns the Wi-Fi's IPv6 off, and back to automatic as soon as it leaves. A Wi-Fi you set up by hand is left alone.")

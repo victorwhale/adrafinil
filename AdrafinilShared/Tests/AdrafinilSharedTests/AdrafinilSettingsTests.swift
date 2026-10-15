@@ -40,6 +40,16 @@ struct AdrafinilSettingsTests {
         // Both touch more than sleep (the network setup, the user's Messages), so both are opt-in.
         #expect(s.ipv4OnlyOnHotspot == false)
         #expect(s.notifyRecipient == "")
+        // A polling net on top of the hooks: opt-in.
+        #expect(s.holdBusyClaudeSessions == false)
+    }
+
+    @Test
+    func `the busy-session net survives a roundtrip`() throws {
+        var original = AdrafinilSettings()
+        original.holdBusyClaudeSessions = true
+        let decoded = try JSONDecoder().decode(AdrafinilSettings.self, from: JSONEncoder().encode(original))
+        #expect(decoded == original)
     }
 
     @Test

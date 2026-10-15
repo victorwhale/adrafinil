@@ -69,6 +69,19 @@ public struct ClaudeSessionStatus: Sendable, Equatable {
         return [home.appendingPathComponent(".claude/sessions", isDirectory: true)] + extra
     }
 
+    /// Every parseable status file in `directories`. A missing directory reads as no sessions;
+    /// only `<pid>.json` names are opened, never the `.key` auth files beside them.
+    public static func readAll(in directories: [URL], fileManager: FileManager = .default) -> [ClaudeSessionStatus] {
+        directories.flatMap { directory -> [ClaudeSessionStatus] in
+            let names = (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? []
+            return names.compactMap { name -> ClaudeSessionStatus? in
+                guard isStatusFilename(name),
+                      let data = try? Data(contentsOf: directory.appendingPathComponent(name)) else { return nil }
+                return parse(data)
+            }
+        }
+    }
+
     /// Whether `filename` is a session status file (`<pid>.json`, strictly). Anchored the same way
     /// as Claude Code's own reader, so the `.key` auth files and anything else are never touched.
     public static func isStatusFilename(_ filename: String) -> Bool {

@@ -47,6 +47,10 @@ final class Daemon {
     let statusBroadcaster = StatusBroadcaster()
 
     private var sweepTimer: Timer?
+    /// The busy-session net's 30s sweep (see `BusySessionNet`), alive while its setting is on.
+    private var busyNetTimer: Timer?
+    /// Keys released while their session still read busy; cleared as each session leaves busy.
+    var busyNetSuppressed: Set<String> = []
     private var reconcileTimer: Timer?
     private var blockingObserver: Task<Void, Never>?
     private var displayObserver: Task<Void, Never>?
@@ -149,6 +153,7 @@ final class Daemon {
 
         updateSweepTimer()
         updateReconcileTimer()
+        updateBusyNetTimer()
     }
 
     // MARK: - Public API used by IPC servers
@@ -306,6 +311,7 @@ final class Daemon {
         if graceful { await armPostWorkGrace(releasing: [key]) }
         let existed = await registry.release(key: key)
         if !existed { lastReleaseCause = previousCause }
+        if existed { noteReleasedForBusyNet([key]) }
         // A released sniffed assertion must stay released: the sweep re-acquires any matched
         // process it isn't already holding, so without this a user's explicit release (or an
         // idle release) would be silently undone 30 seconds later. Suppression lasts until the
@@ -405,6 +411,7 @@ final class Daemon {
         batteryMonitor.enabled = settings.lowBatteryCutoutEnabled
         // The sweep only exists to auto-acquire for sniffed agents — start/stop it as that toggles.
         updateSweepTimer()
+        updateBusyNetTimer()
         Task { @MainActor in
             await self.updateLidClosedExtras()
             await self.ipv6Keeper.update(enabled: self.ipv4OnlyWanted)
@@ -709,6 +716,7 @@ final class Daemon {
                 var released = 0
                 for release in toRelease where await self.registry.release(key: release.key) {
                     released += 1
+                    self.noteReleasedForBusyNet([release.key])
                 }
                 if released > 0 { await self.persistAndSync(event: .idleRelease) }
                 if released > 0, !finished.isEmpty { await self.noticeIfWorkFinished() }
@@ -861,6 +869,21 @@ final class Daemon {
         } else if !needed, let timer = latchRecheckTimer {
             timer.invalidate()
             latchRecheckTimer = nil
+        }
+    }
+
+    /// Runs the busy-session net every 30s while its setting is on — idle or not, since catching a
+    /// session whose hold was lost while nothing else is held is the point — and once right away,
+    /// so sessions mid-turn across a restart are held again at once.
+    private func updateBusyNetTimer() {
+        if settings.holdBusyClaudeSessions, busyNetTimer == nil {
+            busyNetTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+                Task { @MainActor in await self?.busySessionSweep() }
+            }
+            Task { @MainActor in await self.busySessionSweep() }
+        } else if !settings.holdBusyClaudeSessions, let timer = busyNetTimer {
+            timer.invalidate()
+            busyNetTimer = nil
         }
     }
 

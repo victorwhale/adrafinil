@@ -99,13 +99,6 @@ final class SessionStatusMonitor {
     /// Every parseable status file in the sessions directories. A missing directory (Claude Code
     /// absent or never run) reads as no sessions, which disables the whole policy gracefully.
     private func readStatuses() -> [ClaudeSessionStatus] {
-        sessionsDirectories().flatMap { directory -> [ClaudeSessionStatus] in
-            let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-            return names.compactMap { name -> ClaudeSessionStatus? in
-                guard ClaudeSessionStatus.isStatusFilename(name),
-                      let data = try? Data(contentsOf: directory.appendingPathComponent(name)) else { return nil }
-                return ClaudeSessionStatus.parse(data)
-            }
-        }
+        ClaudeSessionStatus.readAll(in: sessionsDirectories())
     }
 }
