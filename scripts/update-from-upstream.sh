@@ -109,4 +109,5 @@ open /Applications/Adrafinil.app
 
 echo
 echo "Récapitulatif : $NEW commit(s) intégrés ($TARGET), tests verts, build signé $TEAM, installé."
+echo "Quitter l'app a relâché les maintiens en cours : chaque session est de nouveau tenue éveillée à son prochain message."
 echo "Pousser la branche : git push --force-with-lease origin $BRANCH"
