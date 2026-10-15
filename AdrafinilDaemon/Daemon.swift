@@ -37,7 +37,7 @@ final class Daemon {
     let wifi = WiFiInterface()
     lazy var hotspotKeeper = HotspotKeeper(wifi: wifi)
     lazy var ipv6Keeper = HotspotIPv6Keeper(helperClient: helperClient, wifi: wifi)
-    let notifier = IMessageNotifier()
+    let notifier = PhoneNotifier()
 
     var appXPCServer: AppXPCServer!
     var cliServer: CLISocketServer!
@@ -400,6 +400,7 @@ final class Daemon {
 
     func reloadSettings() {
         let previousRecipient = settings.notifyRecipient
+        let previousCommand = settings.notifyCommand
         settings = AdrafinilSettings.load()
         idleMonitor.idleThresholdSeconds = TimeInterval(settings.idleReleaseSeconds)
         idleMonitor.enabled = settings.idleReleaseEnabled
@@ -415,10 +416,11 @@ final class Daemon {
         Task { @MainActor in
             await self.updateLidClosedExtras()
             await self.ipv6Keeper.update(enabled: self.ipv4OnlyWanted)
-            // A newly set recipient gets a first message: it proves the route works, and it asks
-            // for the Messages permission now, while the user is at the Mac, not in a bag.
-            if self.settings.notifyRecipient != previousRecipient {
-                await self.notifier.send(AwayNotice.confirmationText, to: self.settings.notifyRecipient)
+            // A newly set recipient or command gets a first message: it proves the route works,
+            // and for iMessage it asks for the Messages permission now, while the user is at the
+            // Mac, not in a bag.
+            if self.settings.notifyRecipient != previousRecipient || self.settings.notifyCommand != previousCommand {
+                await self.notifier.send(AwayNotice.confirmationText, recipient: self.settings.notifyRecipient, command: self.settings.notifyCommand)
             }
         }
     }
@@ -797,7 +799,12 @@ final class Daemon {
                 await self.persistAndSync(event: .thermalCutout)
                 // After the cutout, never before it: the notice must not delay protecting the Mac.
                 if notify {
-                    await self.notifier.send(AwayNotice.thermalCutoutText(celsius: self.thermalMonitor.lastReadingCelsius), to: self.settings.notifyRecipient, timeout: 5)
+                    await self.notifier.send(
+                        AwayNotice.thermalCutoutText(celsius: self.thermalMonitor.lastReadingCelsius),
+                        recipient: self.settings.notifyRecipient,
+                        command: self.settings.notifyCommand,
+                        timeout: 5,
+                    )
                 }
             }
         }
@@ -824,7 +831,12 @@ final class Daemon {
                 await self.registry.removeAll()
                 await self.persistAndSync(event: .lowBatteryCutout)
                 if notify {
-                    await self.notifier.send(AwayNotice.lowBatteryCutoutText(percent: self.batteryMonitor.lastPercent), to: self.settings.notifyRecipient, timeout: 5)
+                    await self.notifier.send(
+                        AwayNotice.lowBatteryCutoutText(percent: self.batteryMonitor.lastPercent),
+                        recipient: self.settings.notifyRecipient,
+                        command: self.settings.notifyCommand,
+                        timeout: 5,
+                    )
                 }
             }
         }

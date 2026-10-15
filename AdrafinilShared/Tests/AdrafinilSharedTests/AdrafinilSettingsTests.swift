@@ -40,6 +40,7 @@ struct AdrafinilSettingsTests {
         // Both touch more than sleep (the network setup, the user's Messages), so both are opt-in.
         #expect(s.ipv4OnlyOnHotspot == false)
         #expect(s.notifyRecipient == "")
+        #expect(s.notifyCommand == "")
         // A polling net on top of the hooks: opt-in.
         #expect(s.holdBusyClaudeSessions == false)
     }
@@ -57,6 +58,7 @@ struct AdrafinilSettingsTests {
         var original = AdrafinilSettings()
         original.ipv4OnlyOnHotspot = true
         original.notifyRecipient = "+33632939718"
+        original.notifyCommand = "/Users/v/code/claude-comptes/bin/alerte-sms"
         let decoded = try JSONDecoder().decode(AdrafinilSettings.self, from: JSONEncoder().encode(original))
         #expect(decoded == original)
     }

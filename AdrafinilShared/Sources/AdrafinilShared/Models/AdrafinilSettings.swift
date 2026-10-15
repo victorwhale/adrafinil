@@ -69,6 +69,9 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
     /// Who to text (iMessage, a `+` phone number or an email) when work behind a closed lid ends or
     /// is cut off (see `AwayNotice`). Empty turns phone notices off.
     public var notifyRecipient: String = ""
+    /// An executable that sends a phone notice, run with the notice text as its only argument (an
+    /// SMS sender, for one). Tried first; the iMessage recipient is the fallback. Empty: unused.
+    public var notifyCommand: String = ""
     /// Every 30 s, hold any Claude Code session its status file says is working but no hook holds
     /// (a missed hook, a restart, a pause and resume), under its hook key (see `BusySessionNet`).
     public var holdBusyClaudeSessions: Bool = false
@@ -134,6 +137,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         case hotspotNetworkName
         case ipv4OnlyOnHotspot
         case notifyRecipient
+        case notifyCommand
         case holdBusyClaudeSessions
         case agentWaitingPolicy
         case agentWaitingGraceMinutes
@@ -182,6 +186,7 @@ public struct AdrafinilSettings: Codable, Sendable, Equatable {
         self.hotspotNetworkName = (try? c.decodeIfPresent(String.self, forKey: .hotspotNetworkName)) ?? d.hotspotNetworkName
         self.ipv4OnlyOnHotspot = (try? c.decodeIfPresent(Bool.self, forKey: .ipv4OnlyOnHotspot)) ?? d.ipv4OnlyOnHotspot
         self.notifyRecipient = (try? c.decodeIfPresent(String.self, forKey: .notifyRecipient)) ?? d.notifyRecipient
+        self.notifyCommand = (try? c.decodeIfPresent(String.self, forKey: .notifyCommand)) ?? d.notifyCommand
         self.holdBusyClaudeSessions = (try? c.decodeIfPresent(Bool.self, forKey: .holdBusyClaudeSessions)) ?? d.holdBusyClaudeSessions
         self.agentWaitingPolicy = (try? c.decodeIfPresent(AgentWaitingPolicy.self, forKey: .agentWaitingPolicy)) ?? d.agentWaitingPolicy
         self.agentWaitingGraceMinutes = (try? c.decodeIfPresent(Int.self, forKey: .agentWaitingGraceMinutes)) ?? d.agentWaitingGraceMinutes

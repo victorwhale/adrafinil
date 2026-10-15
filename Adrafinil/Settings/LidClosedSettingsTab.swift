@@ -49,6 +49,21 @@ struct LidClosedSettingsTab: View {
             }
 
             Section {
+                LabeledContent("Notification command") {
+                    HStack(spacing: Theme.Space.sm) {
+                        TextField("Command", text: $commandDraft, prompt: Text(verbatim: "/path/to/alerte-sms"))
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: 200)
+                            .onSubmit(commitCommand)
+                        Button("Save", action: commitCommand)
+                            .disabled(!commandIsCommittable)
+                    }
+                }
+                if !commandDraft.isEmpty, !AwayNotice.isPlausibleCommandPath(commandDraft) {
+                    Text("Use the absolute path of an executable you own.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 LabeledContent("Text me when it's done") {
                     HStack(spacing: Theme.Space.sm) {
                         TextField("Recipient", text: $recipientDraft, prompt: Text(verbatim: "+33… / you@icloud.com"))
@@ -67,11 +82,14 @@ struct LidClosedSettingsTab: View {
             } header: {
                 Text("Phone notice")
             } footer: {
-                Text("An iMessage when the agents are done behind a closed lid, or when a heat or battery cutout puts the Mac to sleep. Saving sends a first message, and macOS asks once to let Adrafinil use Messages. Empty turns it off.")
+                Text("A notice when the agents are done behind a closed lid, or when a heat or battery cutout puts the Mac to sleep. The notification command (an SMS sender, run with the text as its only argument) goes first; the iMessage recipient takes over when the command is unset or fails. Saving either sends a first message; for iMessage, macOS asks once to let Adrafinil use Messages. Both empty turns it off.")
             }
         }
         .formStyle(.grouped)
-        .onAppear { recipientDraft = settings.notifyRecipient }
+        .onAppear {
+            recipientDraft = settings.notifyRecipient
+            commandDraft = settings.notifyCommand
+        }
     }
 
     /// Edited apart from the settings and saved only on Return or Save: saving sends a message,
@@ -86,6 +104,19 @@ struct LidClosedSettingsTab: View {
         recipientDraft = recipientDraft.trimmingCharacters(in: .whitespaces)
         guard draftIsCommittable else { return }
         settings.notifyRecipient = recipientDraft
+    }
+
+    /// Saved only on Return or Save, like the recipient: saving sends a first message.
+    @State private var commandDraft = ""
+
+    private var commandIsCommittable: Bool {
+        commandDraft != settings.notifyCommand && (commandDraft.isEmpty || AwayNotice.isPlausibleCommandPath(commandDraft))
+    }
+
+    private func commitCommand() {
+        commandDraft = commandDraft.trimmingCharacters(in: .whitespaces)
+        guard commandIsCommittable else { return }
+        settings.notifyCommand = commandDraft
     }
 
     private var graceLabel: String {

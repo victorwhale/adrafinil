@@ -1,8 +1,8 @@
 import Foundation
 
-/// A phone notice — an iMessage to the user — when work behind a closed lid ends or is cut off,
-/// so someone with the Mac in a bag knows when to open it again. Pure: the daemon decides with
-/// this, then sends through Messages.
+/// A phone notice — an SMS through a notification command, or an iMessage to the user — when work
+/// behind a closed lid ends or is cut off, so someone with the Mac in a bag knows when to open it
+/// again. Pure: the daemon decides with this, then sends.
 public enum AwayNotice {
     /// At most one "work finished" notice per window: agents finishing one after another, or a
     /// grace re-armed by a quick follow-up, must not turn into a string of texts.
@@ -24,14 +24,31 @@ public enum AwayNotice {
         return recipient.unicodeScalars.allSatisfy { $0.isASCII && (allowed.contains($0) || $0 == "@") }
     }
 
+    /// A notification command (an SMS sender, for one) the daemon may run: an absolute path with no
+    /// `.` or `..` component and no control characters. The daemon also checks the file itself
+    /// (owned by the user, executable, not writable by others) before running it.
+    public static func isPlausibleCommandPath(_ path: String) -> Bool {
+        guard path.hasPrefix("/"), !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+            return false
+        }
+        let components = path.split(separator: "/", omittingEmptySubsequences: false).dropFirst()
+        return !components.isEmpty && components.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    }
+
+    /// Whether a notice has somewhere to go: a notification command, or an iMessage recipient.
+    public static func hasChannel(recipient: String, command: String) -> Bool {
+        isPlausibleCommandPath(command) || isValidRecipient(recipient)
+    }
+
     public static func shouldNotifyWorkFinished(
         recipient: String,
+        command: String = "",
         lidClosedAlone: Bool,
         agentsLeft: Int,
         lastSent: Date?,
         now: Date,
     ) -> Bool {
-        guard isValidRecipient(recipient), lidClosedAlone, agentsLeft == 0 else { return false }
+        guard hasChannel(recipient: recipient, command: command), lidClosedAlone, agentsLeft == 0 else { return false }
         guard let lastSent else { return true }
         return now.timeIntervalSince(lastSent) >= minInterval
     }

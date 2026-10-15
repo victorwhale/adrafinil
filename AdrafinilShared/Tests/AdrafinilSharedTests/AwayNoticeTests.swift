@@ -32,6 +32,25 @@ struct AwayNoticeTests {
         #expect(AwayNotice.shouldNotifyWorkFinished(recipient: "+33632939718", lidClosedAlone: true, agentsLeft: 0, lastSent: now.addingTimeInterval(-601), now: now))
     }
 
+    @Test(arguments: ["/Users/v/code/claude-comptes/bin/alerte-sms", "/usr/local/bin/notify"])
+    func `plausible notification commands`(path: String) {
+        #expect(AwayNotice.isPlausibleCommandPath(path))
+    }
+
+    @Test(arguments: ["", "alerte-sms", "~/bin/alerte-sms", "/Users/v/../../etc/x", "/tmp/a\nb", "./alerte-sms", "/a/./b"])
+    func `relative, traversing or odd command paths are refused`(path: String) {
+        #expect(!AwayNotice.isPlausibleCommandPath(path))
+    }
+
+    @Test
+    func `a command alone is a channel, no recipient needed`() {
+        #expect(AwayNotice.hasChannel(recipient: "", command: "/Users/v/bin/alerte-sms"))
+        #expect(AwayNotice.hasChannel(recipient: "+33632939718", command: ""))
+        #expect(!AwayNotice.hasChannel(recipient: "", command: ""))
+        #expect(AwayNotice.shouldNotifyWorkFinished(recipient: "", command: "/Users/v/bin/alerte-sms", lidClosedAlone: true, agentsLeft: 0, lastSent: nil, now: now))
+        #expect(!AwayNotice.shouldNotifyWorkFinished(recipient: "", command: "relative", lidClosedAlone: true, agentsLeft: 0, lastSent: nil, now: now))
+    }
+
     @Test
     func `the texts say what happened and what comes next`() {
         #expect(AwayNotice.workFinishedText(graceMinutes: 5) == "Adrafinil : Claude a fini. Le Mac se met en veille dans 5 min.")

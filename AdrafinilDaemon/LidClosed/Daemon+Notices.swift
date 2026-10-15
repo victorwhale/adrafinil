@@ -9,6 +9,7 @@ extension Daemon {
         let agentsLeft = await registry.snapshot().count { $0.key != PostWorkGrace.key }
         await notifier.workFinished(
             recipient: settings.notifyRecipient,
+            command: settings.notifyCommand,
             lidClosedAlone: DisplayHold.onlyDisplayIsClosedBuiltIn(lidClosed: lidMonitor.isLidClosed),
             agentsLeft: agentsLeft,
             graceMinutes: settings.postWorkGraceMinutes,
