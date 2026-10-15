@@ -106,8 +106,31 @@ OLD="/Applications/.Adrafinil.app.old-$STAMP"
 mv "$STAGED" /Applications/Adrafinil.app
 rm -rf "$OLD"
 open /Applications/Adrafinil.app
+sleep 5
+
+# Quitter l'app relâche tous les maintiens (voulu : « le Mac dort normalement »). Les sessions Claude encore au travail
+# sont réenregistrées sous la clé de leurs hooks, qui les relâcheront à la fin de leur réponse.
+REPRISES=0
+for statut in "$HOME"/.claude/sessions/*.json "$HOME"/.claude-*/sessions/*.json; do
+  [ -f "$statut" ] || continue
+  if python3 -I - "$statut" <<'PY_REPRISE'
+import json, os, subprocess, sys
+d = json.load(open(sys.argv[1]))
+pid, session = d.get("pid"), d.get("sessionId")
+if d.get("status") != "busy" or not isinstance(pid, int) or not isinstance(session, str) or not session:
+    sys.exit(1)
+try:
+    os.kill(pid, 0)
+except OSError:
+    sys.exit(1)
+r = subprocess.run(["/Applications/Adrafinil.app/Contents/Helpers/adrafinil", "acquire", session, "--tool", "claude-code",
+                    "--pid", str(pid)], stdin=subprocess.DEVNULL, capture_output=True, timeout=10)
+sys.exit(r.returncode)
+PY_REPRISE
+  then REPRISES=$((REPRISES + 1)); fi
+done
 
 echo
-echo "Récapitulatif : $NEW commit(s) intégrés ($TARGET), tests verts, build signé $TEAM, installé."
-echo "Quitter l'app a relâché les maintiens en cours : chaque session est de nouveau tenue éveillée à son prochain message."
+echo "Récapitulatif : $NEW commit(s) intégrés ($TARGET), tests verts, build signé $TEAM, installé ;"
+echo "$REPRISES session(s) Claude au travail de nouveau tenue(s) éveillée(s)."
 echo "Pousser la branche : git push --force-with-lease origin $BRANCH"
