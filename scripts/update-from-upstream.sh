@@ -96,6 +96,10 @@ check "$APP/Contents/Helpers/adrafinil" adrafinil
 echo "    4 binaires signés $TEAM, identifiants attendus, sans get-task-allow"
 
 echo "==> apply 5/5 Installation (échange atomique, l'ancienne version gardée jusqu'au bout)"
+# Capot fermé, quitter l'app relâche tout et le démon redémarre : jamais d'installation sans quelqu'un devant l'écran.
+if ioreg -r -k AppleClamshellState -d 4 | grep -q '"AppleClamshellState" = Yes'; then
+  die "capot fermé : ouvrir le Mac avant d'installer (rien n'a été remplacé)"
+fi
 STAGED="/Applications/.Adrafinil.app.new-$STAMP"
 ditto "$APP" "$STAGED"
 codesign --verify --deep --strict "$STAGED" || { rm -rf "$STAGED"; die "copie invalide"; }
